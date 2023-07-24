@@ -15,29 +15,42 @@ class FlowExpirationEnv(Env):
     def __init__(self, csv_file):
         super(FlowExpirationEnv, self).__init__()
         self.data = pd.read_csv(csv_file)
-        flow_id = 32088147978799629
-        self.flow_data = self.data[self.data['Flow_Id'] == flow_id].reset_index()
         self.state = 10 # flow expiration 
         self.current_step = 0
-        self.max_steps = len(self.flow_data)
-        # Actions we can take, decrease, increase, no change
-        self.action_space = Discrete(3)
-        # Expiration time in seconds
-        self.observation_space = Box(low=np.array([0,0,0]), high=np.array([65335,65335,65335]), shape=(3,) ,dtype=np.int32) 
+        self.max_steps = len(self.data)
+        self.action_space = Discrete(10,start=-5) 
+        self.observation_space = Dict({
+            #'expiration time': gym.spaces.Box(low=0, high=65535, shape=(1,), dtype=np.int32),
+            'ongoing': gym.spaces.Discrete(2),  # Transmission ongoing (0 or 1)
+            'expired': gym.spaces.Discrete(2),  # Flow expired (0 or 1)
+            'packets': gym.spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.int32),  # Packets
+            'bytes': gym.spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.int32)  # Bytes
+        })
 
     def _get_observation(self):
-        # Extract relevant flow statistics from the current step
+        current_time = self.current_step  # Assuming each step represents a unit of time
+        expiration_time = self.state
         packets = self.data.loc[self.current_step, 'Packets']
         bytes = self.data.loc[self.current_step, 'Bytes']
-        # Return the observation as a NumPy array
-        return np.array([self.state, packets, bytes],dtype=np.int32)  
+        ongoing = self.data.loc[self.current_step, 'State'] != 'PENDING_REMOVE' #packet transmission is ongoingn or not
+        if ongoing and expiration_time < current_time:
+            expired = True #packet transmission is on going and flow rule has expired
+        else:
+            expired = False
+        return {
+            #'expiration time' : expiration_time,
+            'ongoing': ongoing,
+            'expired': expired,
+            'packets': np.array([packets], dtype=np.int32),
+            'bytes': np.array([bytes], dtype=np.int32)
+        }
         
     def step(self, action):
         # Apply action
         # 0 -1 = -1 
         # 1 -1 = 0 
         # 2 -1 = 1  
-        self.state += action -1
+        self.state += action -5
 
         # Calculate the reward based on the expiration time
         reward = self._calculate_reward()
@@ -49,9 +62,7 @@ class FlowExpirationEnv(Env):
         
         # Get the current observation
         observation = self._get_observation()
-
-        #observation = np.array([self.state], dtype=np.int32)  
-        return observation, reward, done, {}
+        return observation, reward, done, {'expiration time':self.state}
     
     def _calculate_reward(self):
         current_time = self.current_step  # Assuming each step represents a unit of time
@@ -60,32 +71,32 @@ class FlowExpirationEnv(Env):
         #print('expiration_time',expiration_time)
         #print('current_time',current_time)
         #print('current State',self.data.loc[self.current_step, 'State'])
-
-        if self.flow_data.loc[self.current_step, 'State'] != 'PENDING_REMOVE':
+        time_penalty = (expiration_time - current_time) 
+        #print('time_penalty==',time_penalty)
+        if self.data.loc[self.current_step, 'State'] != 'PENDING_REMOVE':
             if expiration_time < current_time:
-                return -1  # Flow expired, assign a negative reward
+                return time_penalty  # Flow expired, assign a negative reward
             else:
-                return 2  # Default reward if flow has not expired
-        else:
-            return 0 #flow is removed
+                return 10 - time_penalty # Default reward if flow has not expired
+        elif expiration_time > current_time:
+            return -time_penalty #Transmission done, flow not removed
         
     def render(self):
-        # Implement viz
         pass
     
     def reset(self):
         self.current_step = 0
-        self.max_steps = len(self.flow_data)
+        self.max_steps = len(self.data)
         self.state = 10
-        return np.array([self.state,0,0], dtype=np.int32)
+        return self._get_observation()
     
 #env = FlowExpirationEnv('flow_statistics5.csv')
-env = FlowExpirationEnv('flow_statistics5.csv')
+env = FlowExpirationEnv('filtered_data.csv')
 
 #env = DummyVecEnv([lambda: env])
-model = PPO('MlpPolicy', env, verbose = 1)
+model = PPO('MultiInputPolicy', env, verbose=1, learning_rate=0.001, n_steps=2048, batch_size=64, gamma=0.99, gae_lambda=0.95, ent_coef=0.01, vf_coef=0.5)
 model.learn(total_timesteps=20000)
-evaluate_policy(model, env, n_eval_episodes=10, render=True)
+evaluate_policy(model, env, n_eval_episodes=50, render=True)
 
 
 episodes = 5
@@ -95,11 +106,11 @@ for episode in range(1, episodes+1):
     score = 0 
 
     while not done:
+        # Get the predicted action probabilities
         action, _states = model.predict(observation)
-        #action = env.action_space.sample()
         observation, reward, done, info = env.step(action)
-        #print('reward==', reward)
         score+=reward
+
     print('Episode:{} Score:{}'.format(episode, score))
-    #print('Final Expiration time==',observation)
+    print('Final Expiration time==', info)
 env.close()
