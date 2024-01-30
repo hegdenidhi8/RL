@@ -1,0 +1,33 @@
+Introduction
+Software-Defined Networking (SDN) offers flexible and programmable control over network devices, enabling dynamic flow rule management. However, setting appropriate flow rule expiration time is crucial to prevent unnecessary rule expiration and subsequent communication overhead. The "packet_in" message is a fundamental concept that plays a crucial role in the communication between SDN switches and the SDN controller. When a packet arrives at an SDN switch, and the switch doesn't have a matching flow rule in its flow table to handle the packet, it is considered an unknown packet. Instead of making a local decision on how to handle the packet, the switch forwards this packet to the SDN controller for further processing. This forwarding of the packet to the controller is done using the "packet_in" message.
+
+The two main factors affecting the controller load are:
+
+•	Processing overhead of each packet_in message: When a switch does not know how to handle a packet, it sends a packet_in message to the controller. The controller then decides how to handle the packet and sends back a flow rule to the switch. The complexity of algorithms used in the controller software affects the processing overhead of handling these packet_in messages.
+•	Communication overhead in terms of packet_in message arrival frequency: Frequent arrival of packet_in messages can put a strain on the controller, impacting its performance.
+
+Reducing the frequency of calls to the controller in the form of packet_in message arrival can alleviate the controller load. The focus of our task is on optimizing hard timeout for a flow rule expiration. Flow rule expiration time determine how long a specific flow rule should stay in the flow table of a switch. Longer timeouts may cause flow table overflow, while shorter timeouts can lead to early eviction of flow rules, resulting in increased packet_in messages. Optimizing these timeouts can help balance the load on the controller.
+
+My Approach
+Existing flow duration estimation approaches  rely on algorithms, sampling mechanisms, or probabilistic modeling to estimate the duration of network flows based on historical data or statistical analysis. However, flow duration estimation approaches may suffer from biased samples, slow convergence, and computationally intensive processing, especially when dealing with dynamic traffic patterns. Due to the unpredictable and dynamic nature of network flows, accurately estimating flow durations can be challenging, leading to suboptimal results.
+Reinforcement Learning based approach used in our implementation is a machine learning paradigm that learns through observation, trial, and error where an RL agent learns and optimizes the flow rule expiration time in a dynamic and adaptive manner. This approach is resilient to dynamic changes in traffic patterns and minimizes the communication overhead between switches and the controller compared to static and random timeout mechanisms by predicting an optimal expiration time for a flow rule based on the type of traffic generated. It does not require any hardware update and can be integrated into the controller software, it uses REST APIs to extract state parameters, avoiding extra communication overhead.
+
+Data Capture and Analysis
+The .csv files in the Data folder are the real time network data capture using below setup.
+Experimental Setup:
+ONOS Controller and Mininet:
+I installed and configured the ONOS controller as the SDN management platform and Mininet as the network emulator. This integration allows me to create a virtual SDN environment for experimentation.
+
+Flow Data Generation:
+I generated flow data comprising of Flow Id, number of packets, bytes of data, duration and state of the flow. 
+The structure of the data looks something like this:
+
+
+Flow_Id	App Id	Packets	Bytes	Life	State
+32088148169944525	org.onosproject.fwd	0	0	0	PENDING_ADD
+32088148302408280	org.onosproject.fwd	0	0	0	PENDING_ADD
+32088149631334123	org.onosproject.fwd	0	0	0	PENDING_ADD
+
+
+
+
